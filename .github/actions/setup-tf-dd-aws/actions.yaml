@@ -1,0 +1,41 @@
+# .github/actions/setup-tf-dd-aws/action.yml
+
+name: "Prepare Terraform, Datadog, and AWS"
+description: "This action sets Terraform up, seeds the Datadog vars and applies AWS creds."
+inputs:
+  aws-access-key-id:
+    required: true
+    description: "The aws-access-key-id used to authenticate with AWS"
+  aws-secret-access-key:
+    required: true
+    description: "The aws-secret-access-key used to authenticate with AWS"
+  datadog_api_key:
+    required: false
+    description: "The datadog_api_key used to authenticate with Datadog"
+  datadog_app_key:
+    required: false
+    description: "The datadog_app_key used to authenticate with Datadog"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERS }}
+    - uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: us-gov-west-1
+    - run: |-
+        cat > $TF_FOLDER/pipeline.auto.tfvars <<EOF
+        datadog_api_key = "${{ inputs.datadog_api_key }}"
+        datadog_app_key = "${{ inputs.datadog_app_key }}"
+        EOF
+      shell: bash
+    - uses: marvinpinto/action-inject-ssm-secrets@latest
+      with:
+        ssm_parameter: /devops/VA_VSP_BOT_GITHUB_TOKEN
+        env_variable_name: GITHUB_TOKEN
+    - run: git config --global url.https://${{ env.GITHUB_TOKEN }}@github.com/.insteadOf https://github.com/
+      shell: bash
