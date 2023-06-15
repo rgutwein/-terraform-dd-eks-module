@@ -1,0 +1,109 @@
+name: Terraform Module Build, Test, and Release
+
+on: [push]
+
+env:
+  TF_FOLDER: example
+  TF_VERS: 1.2.1
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  lint_terraform:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform, Datadog, and AWS
+        uses: ./.github/actions/setup-tf-dd-aws
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Format Terraform
+        run: |
+          terraform fmt -check -recursive .
+
+      - name: Validate Terraform
+        run: >
+          export go_home=$(pwd);
+          for dir in $(find . -type d \( -name $go_home -o -name $TF_FOLDER \) -and \( -not -path '*/.*' \)); do
+            cd $dir;
+            terraform init && terraform validate && cd $go_home;
+          done
+
+  plan_terraform:
+    runs-on: ubuntu-20.04
+    needs: lint_terraform
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform, Datadog, and AWS
+        uses: ./.github/actions/setup-tf-dd-aws
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          datadog_api_key: ${{ secrets.TF_VAR_DATADOG_API_KEY }}
+          datadog_app_key: ${{ secrets.TF_VAR_DATADOG_APP_KEY }}
+
+      - name: Plan Terraform
+        run: |
+          terraform init
+          terraform plan -out test_dd_eks_planfile
+        working-directory: ${{ env.TF_FOLDER }}
+
+      - name: Upload Terraform test_dd_eks_planfile
+        uses: actions/upload-artifact@v2
+        with:
+          name: test_dd_eks_planfile
+          path: ~/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ env.TF_FOLDER }}/test_dd_eks_planfile
+
+  apply_terraform:
+    runs-on: ubuntu-20.04
+    needs: plan_terraform
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform, Datadog, and AWS
+        uses: ./.github/actions/setup-tf-dd-aws
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          datadog_api_key: ${{ secrets.TF_VAR_DATADOG_API_KEY }}
+          datadog_app_key: ${{ secrets.TF_VAR_DATADOG_APP_KEY }}
+
+      - name: Download Terraform test_dd_eks_planfile
+        uses: actions/download-artifact@v2
+        with:
+          name: test_dd_eks_planfile
+          path: ${{ env.TF_FOLDER }}
+
+      - name: Apply Terraform
+        run: |
+          terraform init
+          terraform apply -input=false test_dd_eks_planfile
+        working-directory: ${{ env.TF_FOLDER }}
+
+  destroy_terraform:
+    runs-on: ubuntu-20.04
+    needs: apply_terraform
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform, Datadog, and AWS
+        uses: ./.github/actions/setup-tf-dd-aws
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          datadog_api_key: ${{ secrets.TF_VAR_DATADOG_API_KEY }}
+          datadog_app_key: ${{ secrets.TF_VAR_DATADOG_APP_KEY }}
+
+      # Add a 'sleep <amount_of_time>' before the destroy step to allow for debugging of monitors
+      - name: Destroy Terraform
+        run: |
+          terraform init
+          terraform destroy -auto-approve
+        working-directory: ${{ env.TF_FOLDER }}
+
+  release:
+    runs-on: ubuntu-20.04
+    needs: [lint_terraform, plan_terraform, apply_terraform, destroy_terraform]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: cycjimmy/semantic-release-action@v3
