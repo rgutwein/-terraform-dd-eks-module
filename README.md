@@ -32,12 +32,12 @@ provider "datadog" {
 
 ```
 module "test_eks_monitor" {
-  source                       = "github.com/department-of-veterans-affairs/terraform-dd-eks-module?ref=v0.0.3"
+  source                       = "<SOURCR_URL>"
   env                          = "dev"
-  cluster_name                 = "dsva-vagov-dev-cluster"
+  cluster_name                 = "dev-cluster"
   app_name                     = "loki"
   tag_contact                  = "user@example.com"
-  tag_repo                     = "https://github.com/department-of-veterans-affairs/terraform-dd-eks-module"
+  tag_repo                     = "<REPO_TAG>"
   tag_domain                   = "Test Management"
   notify_no_data               = false
   require_full_window          = true
